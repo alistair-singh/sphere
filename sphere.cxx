@@ -147,12 +147,16 @@ struct vpage {
 template<typename T>
 using vpage8k = vpage<T, 8192>;
 
+struct object {
+	address begin;
+	address end;
+};
 struct prime {
 	char magic[4];
 	unsigned int version;
 	size_t id;
-	address objects = 0x04;
-	address free = 0x2004;
+	object objects;
+	object free;
 };
 
 #include <vector>
@@ -160,7 +164,7 @@ class sfile
 {
 	std::string _path;
 	std::fstream _stream;
-	fixed<prime, 64> _entry;
+	fixed<prime, 256> _entry;
 	size_t _size;
 
 	sfile(const std::string& path) : _path(path), _entry{} {
@@ -170,8 +174,6 @@ class sfile
 		prime().magic[3] = '\0';
 		prime().version = 1;
 		prime().id = 0;
-		prime().objects = 0x40;
-		prime().free = 0x2040;
 	}
 
 public:
@@ -224,10 +226,11 @@ public:
 				| std::fstream::trunc
 				| std::fstream::binary);
 		d._entry.write(d._stream);
+		d._size = sizeof(d._entry);
+		auto addresses = d.new_pages<object>(2);
+		d.prime().objects = { addresses[0], addresses[0] };
+		d.prime().free = { addresses[1], addresses[1] };
 		d._size = d._stream.tellg();
-		auto addresses = d.new_pages<address>(2);
-		d.prime().objects = addresses[0];
-		d.prime().free = addresses[1];
 		return d;
 	}
 
@@ -260,14 +263,24 @@ class db {
 	page_cache _cache;
 	sfile _file;
 
+	template <typename T>
+	vpage8k<T> get_vpage(address addr) {
+		return { addr, false, _file.get_page<T>(addr) };
+	}
+
 	template<typename T>
 	std::vector<vpage8k<T>> new_objects(const size_t num = 1) {
 		auto addresses = _file.new_pages<T>(num);
 		auto vpages = std::vector<vpage8k<T>>();
 		vpages.reserve(num);
+		auto objects = get_vpage<object>(_file.prime().objects.end);
 		for(auto address: addresses) {
 			auto page = _file.get_page<T>(address);
 			vpages.push_back({ address, false, page });
+			//if(!objects.page.push_back({address, address}))
+			//{
+			
+			//}
 		}
 		return vpages;
 	}
@@ -306,7 +319,6 @@ int main() {
 	auto objects = d.new_objects<address>(2);
 	std::printf("num of addresses %zu\n", objects.size());
 	for(auto object: objects) {
-		std::printf("page adr %zu\n", object.page);
 		std::printf("page adr %zu\n", object.page);
 		//auto vpage = d._file.get_page<address>(object.page);
 		auto &page = object.page;
