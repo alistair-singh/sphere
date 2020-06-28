@@ -116,6 +116,7 @@ struct page {
 
 	H header;
 	T data[CAPACITY];
+	char padding[SIZE-(sizeof(data)+sizeof(header_t))];
 
 	T* begin() { return (T*)&data; }
 	T* end() { return (T*)&data[header.size]; }
@@ -127,6 +128,8 @@ struct page {
 		}	
 		return false;
 	}
+
+	constexpr size_t size() { return SIZE; }
 };
 
 template<typename T, size_t S>
@@ -182,8 +185,8 @@ public:
 
 	template<typename T>
 	std::vector<address> new_pages(const size_t num = 1) {
-		_stream.seekg(0, _stream.end);
-		size_t position = _stream.tellg();
+		_stream.seekp(0, _stream.end);
+		long long position = _stream.tellp();
 		assert(position == _size);
 
 		std::vector<address> addresses;
@@ -194,24 +197,23 @@ public:
 
 		std::vector<char> data(spage8k<T>::SIZE * num);
 		_stream.write(data.data(), spage8k<T>::SIZE * num);
-		_size = _stream.tellg();
+		_size = _stream.tellp();
 		return addresses;
 	}
 
 	template<typename T>
 	void set_page(address adr, const spage8k<T> &blank) {
-		_stream.seekg(adr, _stream.beg);
+		_stream.seekp(adr, _stream.beg);
 		_stream.write((char*)(&blank), spage8k<T>::SIZE);
 	}
 
 	template<typename T>
 	spage8k<T> get_page(address adr) {
-		if(adr > _size)
-			throw "Bad addr";
-		spage8k<T> blank;
+		if(adr > _size) throw "Bad addr";
+		spage8k<T> page;
 		_stream.seekg(adr, _stream.beg);
-		_stream.read((char*)(&blank), spage8k<T>::SIZE);
-		return blank;
+		_stream.read((char*)&page, spage8k<T>::SIZE);
+		return page;
 	}
 
 	static bool check(const std::string &path) {
@@ -226,7 +228,7 @@ public:
 				| std::fstream::trunc
 				| std::fstream::binary);
 		d._entry.write(d._stream);
-		d._size = sizeof(d._entry);
+		d._size = d._stream.tellg();
 		auto addresses = d.new_pages<object>(2);
 		d.prime().objects = { addresses[0], addresses[0] };
 		d.prime().free = { addresses[1], addresses[1] };
@@ -275,13 +277,13 @@ class db {
 		vpages.reserve(num);
 		auto objects = get_vpage<object>(_file.prime().objects.end);
 		for(auto address: addresses) {
-			auto page = _file.get_page<T>(address);
-			vpages.push_back({ address, false, page });
-			//if(!objects.page.push_back({address, address}))
-			//{
-			
-			//}
+			vpages.push_back(get_vpage<T>(address));
+			if(!objects.page.push_back({address, address}))
+			{
+				throw "grow!";
+			}
 		}
+		objects.dirty = true;
 		return vpages;
 	}
 
@@ -313,20 +315,21 @@ int main() {
 	std::printf("vpage8k::page_t::header_t:%zu\n", sizeof(vpage8k<int>::page_t::header_t));
 	auto a = sphere::aabb::empty();
 	db d = db::create("database.db");
-	std::printf("sfile size %zu\n", d._file.size());
-	std::printf("sfile objects addr %zu\n", d._file.prime().objects);
-	std::printf("sfile free addr %zu\n", d._file.prime().free);
-	auto objects = d.new_objects<address>(2);
+	std::printf("db size %zu\n", d._file.size());
+	std::printf("db objects addr %08x\n", d._file.prime().objects.end);
+	std::printf("db free addr    %08x\n", d._file.prime().free.end);
+	auto objects = d.new_objects<int>(2);
 	std::printf("num of addresses %zu\n", objects.size());
-	for(auto object: objects) {
-		std::printf("page adr %zu\n", object.page);
-		//auto vpage = d._file.get_page<address>(object.page);
+	for(vpage8k<int> object: objects) {
+		std::printf("vpage adr %zu\n", object.addr);
+		std::printf("vpage size %zu\n", object.dirty);
+		std::printf("vpage size %zu\n", object.page.size());
 		auto &page = object.page;
 
-		page.push_back(1);
-		page.push_back(4);
-		page.push_back(7);
-		page.push_back(8);
+		//page.push_back(1);
+		//page.push_back(4);
+		//page.push_back(7);
+		//page.push_back(8);
 
 		std::printf("\tpage next %zu\n", page.header.next);
 		std::printf("\tpage prev %zu\n", page.header.prev);
